@@ -5,16 +5,20 @@ import asyncio
 import urllib.parse
 from retell import Retell
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException,WebSocket
 from twilio_server import TwilioClient
 from webhook import router as webhook_router
 from twilio.twiml.voice_response import VoiceResponse
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from twilio.rest import Client
+from fastapi.websockets import WebSocketState
+import json
 
 app = FastAPI()
 twilio_client = TwilioClient()
+twilio_client2 = Client(os.environ["TWILIO_ACCOUNT_ID"], os.environ["TWILIO_AUTH_TOKEN"])
 retell = Retell(api_key= os.getenv('RETELL_API_KEY'))
 
 
@@ -39,6 +43,60 @@ class WebCallRequest(BaseModel):
     agent_id: str
     metadata: dict = None
     retell_llm_dynamic_variables: dict = None
+    
+class CallRequest(BaseModel):
+    to: str
+    sip_uri: str
+
+
+
+
+@app.post("/call")
+async def make_call(call_request: CallRequest):
+    """
+    Endpoint to handle outbound SIP calls from Twilio.
+    """
+    try:
+        # Initiate a call via Twilio SIP
+        call = twilio_client2.calls.create(
+            to=f"sip:universidadisep.pstn.twilio.com",
+            from_="+16282368196",
+            ##sip_auth_username="your_sip_username",  # Optional SIP Auth
+            ##sip_auth_password="your_sip_password",  # Optional SIP Auth
+            url="https://iallamadas.universidadisep.com/twiml"
+        )
+        return {"status": "success", "call_sid": call.sid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/outbound-call")
+async def make_call(call_request: CallRequest):
+    """
+    Endpoint to handle outbound SIP calls from Twilio.
+    """
+    try:
+        # Initiate a call via Twilio SIP
+        call = twilio_client2.calls.create(
+            to=f"sip:universidadisep.pstn.twilio.com",
+            from_="+16282368196",
+            ##sip_auth_username="your_sip_username",  # Optional SIP Auth
+            ##sip_auth_password="your_sip_password",  # Optional SIP Auth
+            url="https://iallamadas.universidadisep.com/twiml"
+        )
+        return {"status": "success", "call_sid": call.sid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/twiml")
+async def twiml_response(request: Request):
+    """
+    Endpoint to handle Twilio SIP call responses using TwiML.
+    """
+    voice_response = VoiceResponse()
+    voice_response.say("This is a call from your SIP server.")
+    return str(voice_response)
+    
 
 @app.post("/create-web-call")
 async def create_web_call(request: WebCallRequest):
@@ -57,7 +115,7 @@ async def create_web_call(request: WebCallRequest):
                 "https://api.retellai.com/v2/create-web-call",
                 json=payload,
                 headers={
-                    "Authorization": "Bearer f90c66b6-5bef-405f-920d-787e21bf2939",  # Reemplaza con tu token real
+                    "Authorization": "Bearer key_cdec3f0a6377501ce7f9cbaa03b0",  # Reemplaza con tu token real
                     "Content-Type": "application/json",
                 },
             )
@@ -68,13 +126,17 @@ async def create_web_call(request: WebCallRequest):
         raise HTTPException(status_code=500, detail="Failed to create web call")
 
 
-@app.post("/outbound-call")
+@app.post("/outbound-call2")
 async def handle_twilio_voice_webhook(request: Request):
     body = await request.json()
     to_number = body.get('to_number')
-    custom_variables = body.get('custom_variables', None)
-    call = twilio_client.create_phone_call(os.getenv("PHONE_NUMBER"), to_number, os.environ['RETELL_AGENT_ID'], custom_variables)#from,to
+    p_number = body.get('p_number')
+    id_agent = body.get('id_agent')
+    custom_variables = body.get('custom_variables',__name__)
+    call = twilio_client.create_phone_call(p_number, to_number, id_agent, custom_variables)#from,to
     return {"call_sid": call.sid, "msg": "done"}
+
+
 
 
 @app.post("/call-status")
@@ -139,24 +201,26 @@ async def handle_twilio_voice_webhook(request: Request, agent_id_path: str):
                     send_data( os.getenv("GHL_REMOVE_VOICE_MAIL_URL"),Item(phone=post_data["To"]))
             )
 
-        call_response = retell.call.register(
+        call_response = retell.call.register_phone_call(
             agent_id=agent_id_path,
-            audio_websocket_protocol="twilio",
-            audio_encoding="mulaw",
-            sample_rate=8000,  # Sample rate has to be 8000 for Twilio
+            #audio_websocket_protocol="twilio",
+            #audio_encoding="mulaw",
+            #sample_rate=8000,  # Sample rate has to be 8000 for Twilio
             from_number=post_data["From"],
             to_number=post_data["To"],
             retell_llm_dynamic_variables=custom_variables,
             metadata={"twilio_call_sid": post_data["CallSid"]},
+
         )
         response = VoiceResponse()
         start = response.connect()
         start.stream(
-            url=f"wss://api.retellai.com/audio-websocket/{call_response.call_id}"
+            url=f"wss://iallamadas.universidadisep.com/llm-websocket/{call_response.call_id}"
+            #url=f"wss://api.retellai.com/audio-websocket/{call_response.call_id}"
         )
         return PlainTextResponse(str(response), media_type="text/xml")
     except Exception as err:
         print(f"Error in twilio voice webhook: {err}")
         return JSONResponse(
-            status_code=500, content={"message": "Internal Server Error"}
+            status_code=500, content={"message": "Internal Server Error_twillio_voice_webhook"}
         )
