@@ -115,7 +115,7 @@ async def create_web_call(request: WebCallRequest):
                 "https://api.retellai.com/v2/create-web-call",
                 json=payload,
                 headers={
-                    "Authorization": "Bearer key_0ab5d184730dccd9c46ac59df306",  # Reemplaza con tu token real
+                    "Authorization": "Bearer key_cdec3f0a6377501ce7f9cbaa03b0",  # Reemplaza con tu token real
                     "Content-Type": "application/json",
                 },
             )
